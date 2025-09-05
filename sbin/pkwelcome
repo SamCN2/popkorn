@@ -1,0 +1,18 @@
+#!/bin/ksh
+
+mailid=$1
+domain=${mailid##*@}
+
+mailx -s "Welcome to PopKorn" $mailid << EOF
+
+Welcome to the PopKorn POP email system.  
+To receive email, just tell your correspondents of your new mailid,
+$1 and set your email parameters as follows:
+
+	POP server:	mail.$domain
+
+You should use the SMTP relay of the ISP you use to connect to the
+Internet.
+
+Thank you for using PopKorn
+EOF

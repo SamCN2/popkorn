@@ -1,0 +1,2 @@
+BASEDIR=/dpool/popkorn
+DELIVER_LOG=/var/log/popkorn/deliver_log

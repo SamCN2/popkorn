@@ -1,0 +1,124 @@
+#!/usr/local/bin/php -q
+<?php
+
+include ("stdio.inc");
+include ("userdb.inc");
+define( BASEDIR, "/home/popkorn");
+define( "ADMINDB", "admindb" );
+define( "USERDB", "userdb" );
+if( !chdir( BASEDIR)){
+  echo "Cannot cd to BASEDIR\n";
+  exit;
+}
+
+
+$userdb = USERDB;
+$admindb = ADMINDB;
+
+// Check auth of caller
+
+// get uid + passwd
+/*
+ * Delete this and use sudo to auth.  Use this from web app, which this ain't
+ *
+echo "Enter your userID: ";
+$auserid = trim(fgets( $stdin, 128));
+echo "Password: ";
+
+`stty -echo`;
+$apasswd = trim(fgets( $stdin, 128));
+echo "\n";
+`stty echo`;
+
+
+// check them
+if ( !$apwent = getpwent( $auserid, $admindb)){
+  echo "No such adm user\n";
+  exit();
+}
+
+if( !chkpw( $apwent, $apasswd)){
+  echo "Bad passwd\n";
+  exit();
+}
+*/
+// Setup for checking and making new user
+
+$done = 0;
+while( !$done) {
+  
+  if( !chdir( BASEDIR)){
+    echo "Cannot cd to Basedir\n";
+    exit;
+  }
+  
+  // Get emailaddr of new user of new user
+  
+  echo "Enter new email addr (e.g. frodo@midterra.org ): ";
+  $mailid = trim( fgets( $stdin, 128));
+
+  if( feof( $stdin) || $mailid == "")
+    exit;
+  
+  list( $mbox, $domain) = split( "[@:%]", $mailid);
+  list( $user, $folder) = explode( "+", $mbox);
+  // check existence of domain
+  $dompath = "domain/$domain";
+  
+  if (!is_dir($dompath)){
+    echo "Invalid domainpath $domain\n";
+    continue;
+  }
+  
+  if (!chdir( $dompath))
+    echo "Cannot set dir $dompath\n";
+
+  // check existence of userid
+  $pwent = getpwent( $user);
+  if ($pwent != ""){
+    echo "$mailid already spoken for\n";
+    continue;
+  }
+  
+  echo "Enter full name: ";
+  $mailid = trim( fgets( $stdin, 128));
+
+  for ( $passwd == ""; $passwd == ""; ) {
+    echo "Password for $mailid: ";
+    `stty -echo`;
+    $passwd1 = trim(fgets( $stdin, 128));
+    echo "\nAgain: ";
+    $passwd2 = trim(fgets( $stdin, 128));
+    echo "\n";
+    `stty echo`;
+  
+    if ($passwd1 == $passwd2 ){
+      $passwd = $passwd1;
+    }
+    else 
+      echo "Password mismatch, please try again.\n";
+  }
+  
+  // Make pwent for userdb
+
+  $pwent = mkpwent( $user, $passwd, $realname);
+  if ($pwent == ""){
+    echo "Error making pwent for $user\n";
+    exit;
+  }
+
+  // Make dirstruct for userdb
+  if (!setpwent( $pwent, $userdb)){
+    echo "Unable to set pwent for $user in $userdb\n";
+    exit;
+  }
+
+  // Make dirstruct for user
+  // Actually, don't.  pkdeliver can do that easier.  And anyway, it's gonna do it
+  // as a fallback anyway.  Think of demand paging.
+
+  // Well, let's tickle pkdeliver into doing that
+  `pkwelcome $mailid`;
+
+}
+?>

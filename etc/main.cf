@@ -1,0 +1,90 @@
+queue_directory = /var/postfix
+command_directory = /opt/local/sbin
+daemon_directory = /opt/local/libexec/postfix
+mail_owner = postfix
+myhostname = mail.ogt11.net
+inet_interfaces = all
+alias_maps = btree:/etc/postfix/aliases
+mailbox_transport = popkorn
+fallback_transport = popkorn
+smtpd_sasl_auth_enable = yes
+broken_sasl_auth_clients = yes
+smtpd_sasl_security_options = noanonymous
+smtpd_sasl_local_domain = $myhostname
+smtpd_client_restrictions = permit_sasl_authenticated
+
+smtpd_sasl_type = dovecot
+# Can be an absolute path, or relative to $queue_directory
+smtpd_sasl_path = private/auth
+# and the common settings to enable SASL:
+smtpd_recipient_restrictions = permit_sasl_authenticated permit_mynetworks 
+                               warn_if_reject check_policy_service inet:127.0.0.1:2469 reject
+#TLS params
+smtpd_tls_key_file = /etc/certs/mail.ogt11.com/privkey.pem
+smtpd_tls_cert_file = /etc/certs/mail.ogt11.com/fullchain.pem
+smtpd_tls_security_level = may
+#smtpd_tls_cert_file = /etc/certs/mail.ogt11.com.crt
+#smtpd_tls_key_file = /etc/certs/mail.ogt11.com.key
+
+#content_filter=safilter:
+#
+#
+transport_maps = btree:/etc/postfix/transport
+relay_domains = btree:/etc/postfix/transport
+#
+mynetworks = 198.98.0.0/22,207.188.212.0/25
+local_destination_concurrency_limit = 2
+default_destination_concurrency_limit = 20
+pksadel_destination_recipient_limit = 1
+pksadel_destination_concurrency_limit = 20
+popkorn_destination_recipient_limit = 1
+popkorn_destination_concurrency_limit = 10
+popkorncmj_destination_recipient_limit = 1
+popkorncmj_destination_concurrency_limit = 10
+debug_peer_level = 2
+message_size_limit = 40960000
+unknown_local_recipient_reject_code = 450
+
+# INSTALL-TIME CONFIGURATION INFORMATION
+#
+# The following parameters are used when installing a new Postfix version.
+# 
+# sendmail_path: The full pathname of the Postfix sendmail command.
+# This is the Sendmail-compatible mail posting interface.
+# 
+sendmail_path = /opt/local/lib/sendmail
+
+# newaliases_path: The full pathname of the Postfix newaliases command.
+# This is the Sendmail-compatible command to build alias databases.
+#
+newaliases_path = /opt/local/bin/newaliases
+
+# mailq_path: The full pathname of the Postfix mailq command.  This
+# is the Sendmail-compatible mail queue listing command.
+# 
+mailq_path = /opt/local/bin/mailq
+
+# setgid_group: The group for mail submission and queue management
+# commands.  This must be a group name with a numerical group ID that
+# is not shared with other accounts, not even with the Postfix account.
+#
+setgid_group = maildrop
+
+# html_directory: The location of the Postfix HTML documentation.
+#
+html_directory = no
+
+# manpage_directory: The location of the Postfix on-line manual pages.
+#
+manpage_directory = /opt/local/share/man
+
+# sample_directory: The location of the Postfix sample configuration files.
+# This parameter is obsolete as of Postfix 2.1.
+#
+sample_directory = /etc/postfix
+
+# readme_directory: The location of the Postfix README files.
+#
+readme_directory = no
+
+inet_protocols = ipv4

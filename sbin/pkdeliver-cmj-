@@ -1,0 +1,241 @@
+#! /bin/ksh
+
+#usage: pkdeliver -r recipient	-s sender	-d domain
+
+PATH=$PATH:/usr/local/bin:/usr/local/sbin
+PKCONF=${PKCONF:=/etc/popkorn.cf}
+
+. $PKCONF
+
+exec 2>> $DELIVER_LOG
+
+
+EX_USAGE=64              #/* command line usage error */
+EX_DATAERR=65            #/* data format error */
+EX_NOINPUT=66            #/* cannot open input */
+EX_NOUSER=67             #/* addressee unknown */
+EX_NOHOST=68             #/* host name unknown */
+EX_UNAVAILABLE=69        #/* service unavailable */
+EX_SOFTWARE=70           #/* internal software error */
+EX_OSERR=71              #/* system error (e.g., can't fork) */
+EX_OSFILE=72             #/* critical OS file missing */
+EX_CANTCREAT=73          #/* can't create (user) output file */
+EX_IOERR=74              #/* input/output error */
+EX_TEMPFAIL=75           #/* temporary failure */
+EX_PROTOCOL=76           #/* remote error in protocol */
+EX_NOPERM=77             #/* permission denied */
+EX_CONFIG=78             #/* configuration error */
+
+ProgName=${0##*/}
+
+squawk () {
+#  logger -i -p mail.err $1
+  print 1>&2 ${ProgName}: $(date +%Y:%m:%d:%H:%M:%S)  $1
+}
+
+finish () {
+  rm -f $MessageData
+  exit ${1:-0}
+}
+
+trap 'finish 1' 1 2 3 15
+
+#BASEDIR=/home/popkorn
+if ! cd $BASEDIR
+then
+  squawk "Cannot cd to $BASEDIR"
+  finish $EX_TEMPFAIL
+fi
+
+usage () {
+  print usage: $ProgName -r recipient -s sender -d domain
+}
+
+if [[ ( X$1 != X-r ) || (X$3 != X-s) || (X$5 != X-d) ]]
+then
+  usage
+  finish $EX_USAGE
+fi
+
+typeset -l Recipient=$2
+Sender=$4
+typeset -l Domain=$6
+
+RecipientID=${Recipient%%[+-]*}
+
+# First off, save the message data...
+MessageData="$PWD/msgdata.$$.$RANDOM"
+tee $MessageData |
+sed 's/^[.]//' | wc -c | read MsgSize # ...and count its de-dot-stuffed size
+
+if ! cd "domain/$Domain"
+then
+  squawk  "Delivery Domain $Domain not supported"
+  finish  $EX_NOUSER
+fi
+
+#
+# forward a message; destinations are read from stdin.
+# return success if fwd has completely handled the message
+# and, hence, local delivery is not needed
+#
+fwd () {
+  typeset -l sender=$1 ; shift
+  typeset -l recipient=$1 ; shift
+  typeset -l domain=$1 ; shift
+  typeset -l deliver_me=no	# by default, if we're forwarding
+				# then local delivery doesn't occur
+
+  sed 's/[ 	]*#.*//' |
+  while read faddr ; do
+    case $faddr in
+    '')
+      # skip empty lines
+      ;;
+    $recipient|$recipient@$domain)
+      # recipient is listed in the addresses to which
+      # we should forward messages => deliver loccally, too
+      deliver_me=yes
+      ;;
+    *@*)
+      /usr/sbin/sendmail -f "$sender" "$faddr" < $MessageData
+      ;;
+    *)
+      /usr/sbin/sendmail -f "$sender" "$faddr@$domain" < $MessageData
+      ;;
+    esac
+  done
+
+  [[ $deliver_me = no ]]
+}
+
+[[ -s _forwdomain ]] &&
+  fwd < _forwdomain "$Sender" "$Recipient" "$Domain" &&
+  finish
+[[ -s aliases/$Recipient/_list ]] &&
+  fwd < aliases/$Receipient/_list "$Sender" "$Recipient" "$Domain" &&
+  finish
+
+DEFAULT_MARKER='--default recipient--'
+if [[ -a userdb ]]
+then
+  if egrep -s "^${RecipientID}:" userdb
+  then
+    : user exists
+  elif egrep -s ":$DEFAULT_MARKER"\$ userdb
+  then
+    # Tweeze out (first) default recipient
+    Recipient=$(sed < userdb -e "/:$DEFAULT_MARKER"'$/{
+				s/:.*//
+				q
+				}
+				d')
+  else
+    squawk "Recipient $RecipientID not authorized"
+    finish $EX_NOUSER
+  fi
+fi
+
+#Recipient dir:= recipient+folder -> recipient/folder
+RecipientMdir=${Recipient}
+[[ $Recipient = *[+-]* ]] &&
+  RecipientMdir=${Recipient%%[+-]*}/${Recipient#*[+-]}
+
+# Ensure that delivery directories are in-place.  Make them, ingoring errors.
+# Squawk if we cannot cd into them, though.
+
+UserDeliveryDir=folders/${RecipientMdir}
+
+[[ ! -d $UserDeliveryDir/. ]] &&
+  mkdir -p "$UserDeliveryDir/." &&
+  chmod 770 "$UserDeliveryDir"
+
+if ! cd $UserDeliveryDir
+then
+  squawk "Cannot change to user delivery dir $UserDeliveryDir"
+  finish $EX_CANTCREAT
+fi
+
+# Create any missing directories
+for i in new cur tmp
+do
+  [[ -d $i/. ]] || mkdir -p $i/.
+done
+
+# By now, we are in the proper delivery dir.  There should be three dirs here:
+# new, cur, and tmp
+# messages are delivered into tmp and then moved into new.
+#
+# There may also be 3 control files: _forward, _notify, _vacation
+# _forward files contain one address per line, they get the entire message,
+# If one of _foward or _notify  matches the recipient's addr, we deliver here as well.
+#
+# _notify files also contain one address per line but only get the $Sender
+# sent to them.
+#
+# _vacation files hold a message to be delivered back to $Sender
+
+# Handle _forward
+[[ -s _forward ]] &&
+  fwd < _forward "$Sender" "$Recipient" "$Domain" &&
+  finish
+
+# Get Subject: line
+while read tag roline
+do
+  [[ $tag = [Ss]ubject: ]] && Subj="$roline" && break
+done < $MessageData
+
+# Handle _notify
+if [[ -s _notify ]]
+then
+  while read notifyaddr
+  do
+    if [[ $notifyaddr != $Recipient@$Domain && $notifyaddr != $Recipient ]] 
+    then
+      {
+	print -R  From:  $Sender
+	print -R '   Re:' $Subj
+      } |
+      mailx -s "New mail Re: $Subj" "$notifyaddr"
+    fi
+  done < _notify
+fi
+
+# Handle _vacation
+if [[ ! -s _vacation ]]
+then
+  # There's no vacation file, so clean up any cruft
+  [[ -f _vacation.told ]] && rm -f _vacation.told
+elif [[ $Sender != $Recipient && $Sender != $Recipient@$Domain ]]
+then
+  # if _vacation is newer than list of those who
+  # know $Recipient is on vacation, dump the list
+  [[ _vacation -nt _vacation.told ]] && rm -f _vacation.told
+
+  if ! look "<$Sender>" _vacation.told > /dev/null 2>&1
+  then
+    sed < _vacation 's/\$SUBJECT/'"$Subj"/g |
+    /usr/sbin/sendmail -f "$Recipient@$Domain" "$Sender"
+
+    # Remember we've told this sender re: vacation
+    { print "<$Sender>" ; cat $v_told ; } | sort > tmp/_vacation.told.new.$$
+    mv tmp/_vacation.told.new.$$ _vacation.told
+  fi
+fi
+
+# Make up a unique file name.
+MsgFileName=msg.$(date +%Y.%m.%d.%H.%M.%S).$$.${RANDOM},S=${MsgSize}
+
+# Store the message
+if ! mv $MessageData tmp/$MsgFileName	# move to tmp, perhaps crossing mount points
+then
+  squawk "Unable to move message into $PWD/tmp"
+  finish $EX_CANTCREAT
+elif ! mv tmp/$MsgFileName ./new 	# move to new, which must be on same fs as tmp
+then
+  squawk "Unable to move message into $PWD/new"
+  finish $EX_CANTCREAT
+fi
+
+finish 0
